@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coffee Grind Settings Matcher</title>
+    <style>
+
+/*        
+        * {
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+*/
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: #f5e6d3;
+            color: #4a2c2a;
+            margin: 0;
+            padding: 20px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+
+            touch-action: pan-x pan-y;
+            -webkit-touch-callout: none;
+        }
+
+        .container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            height: 260px;
+            margin-top: 50px;
+        }
+
+        .ruler-container {
+            position: absolute;
+            width: 100%;
+            height: 260px;
+            overflow: hidden;
+            cursor: grab;
+        }
+
+        .ruler {
+            position: absolute;
+            height: 100%;
+            transition: transform 0.2s ease-out;
+            left: 50%;
+        }
+
+        .cursor-marker {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            width: 3px;
+            height: 165px;
+            background: #6f4e37;
+            z-index: 10;
+            box-shadow: 0 0 8px rgba(255, 68, 68, 0.5);
+            transform: translateX(-50%);
+        }
+
+        .method-zone {
+            position: absolute;
+            height: 25px;
+            border-radius: 4px;
+            opacity: 0.3;
+            transition: opacity 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .method-zone.active {
+            opacity: 0.6;
+        }
+
+        .method-label {
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+        }
+
+        .ruler-mark {
+            position: absolute;
+            bottom: 20px;
+            width: 1px;
+            height: 30px;
+            background: #6f4e37;
+        }
+
+        .ruler-mark.major-mark {
+            height: 50px;
+            background: #4a2c2a;
+        }
+
+        .ruler-label {
+            position: absolute;
+            bottom: -20px;
+            font-size: 12px;
+            color: #4a2c2a;
+            transform: translateX(-50%);
+        }
+
+        .current-micron {
+            position: absolute;
+            top: -40px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 2.5em;
+            color: #6f4e37;
+            font-weight: bold;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .grinders {
+            display: flex;
+            gap: 20px;
+            padding: 20px 0;
+            flex-flow: wrap;
+            justify-content: space-evenly;
+        }
+
+        .grinder-box {
+            background: #fff5eb;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow-wrap: break-word;
+            width: 130px;
+        }
+
+        .grinder-clicks {
+            font-weight: bold;
+        }
+
+        .grinder-microns-per-click {
+            font-size: 10px;
+        }
+
+        .no-select {
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="current-micron">0µm</div>
+        <div class="cursor-marker"></div>
+        <div class="ruler-container" id="rulerContainer">
+            <div class="ruler" id="ruler"></div>
+        </div>
+    </div>
+    <div class="grinders" id="grinders"></div>
+
+    <script>
+        const CoffeeGrindSettingsMatcher = (() => {
+            function round(x) {
+                return x | 0;
+            }
+
+            function getMicronsPerClick(clicksMin, clicksMax, micronsMin, micronsMax) {
+                const totalClicks = clicksMax - clicksMin + 1;
+                const totalMicrons = micronsMax - micronsMin + 1;
+                const micronsPerClick = totalMicrons / totalClicks;
+                return micronsPerClick;
+            }
+
+            function convertMicronsToClicks(microns, clicksMin, clicksMax, micronsMin, micronsMax) {
+                if (microns < micronsMin) {
+                    return -1;
+                }
+                if (microns > micronsMax) {
+                    return -1;
+                }
+                const micronsPerClick = getMicronsPerClick(
+                    clicksMin,
+                    clicksMax,
+                    micronsMin,
+                    micronsMax);
+                const clicks = clicksMin + (microns - micronsMin) / micronsPerClick;
+                return round(clicks);
+            }
+
+            function getGrinderClicksText(grinder, microns) {
+                const clicks = convertMicronsToClicks(
+                    microns,
+                    grinder.clicksMin,
+                    grinder.clicksMax,
+                    grinder.micronsMin,
+                    grinder.micronsMax);
+                if (clicks < 0) {
+                    return "N/A";
+                }
+                return clicks.toString();
+            }
+
+            function getMicronsPerClickText(grinder) {
+                const micronsPerClick = getMicronsPerClick(
+                    grinder.clicksMin,
+                    grinder.clicksMax,
+                    grinder.micronsMin,
+                    grinder.micronsMax);
+                return `${micronsPerClick.toFixed(2)} µm/click`;
+            }
+
+            const config = {
+                pixelsPerMicron: 3.0,
+                maxMicron: 1400,
+                methods: [
+                    { name: 'Turkish', min: 40, max: 220, color: '#d4a574', top: 60 },
+                    { name: 'Espresso', min: 180, max: 380, color: '#6f4e37', top: 30 },
+                    { name: 'Moka Pot', min: 360, max: 660, color: '#8c684d', top: 60 },
+                    { name: 'V60 Pour Over', min: 400, max: 700, color: '#a87d52', top: 30 },
+                    { name: 'French Press', min: 690, max: 1300, color: '#4a2c2a', top: 60 },
+                    { name: 'Cold Brew', min: 800, max: 1400, color: '#2c1e1d', top: 30 },
+                    { name: 'Batch Brew', min: 300, max: 900, color: '#b08f69', top: 90 },
+                    { name: 'Pour Over', min: 410, max: 930, color: '#d4a574', top: 120 },
+                    { name: 'Cupping', min: 460, max: 850, color: '#8c684d', top: 150 },
+                ],
+                grinders: [
+                    { id: 'df54', name: 'DF54', clicksMin: 0, clicksMax: 90, micronsMin: 110, micronsMax: 900 },
+                    { id: 'kultra', name: 'K-Ultra', clicksMin: 0, clicksMax: 185, micronsMin: 0, micronsMax: 1400 },
+                    { id: 'c40', name: 'Comandante', clicksMin: 0, clicksMax: 40, micronsMin: 0, micronsMax: 1090 },
+                    { id: 'c2', name: 'Timemore C2', clicksMin: 0, clicksMax: 30, micronsMin: 0, micronsMax: 950 },
+                    { id: 'ssgp', name: 'Smart Grinder Pro', clicksMin: 1, clicksMax: 60, micronsMin: 200, micronsMax: 820 }
+                ]
+            };
+
+            let state = {
+                isDragging: false,
+                startX: 0,
+                currentTranslate: 0,
+                rulerWidth: 0,
+                containerWidth: 0
+            };
+
+            const dom = {
+                ruler: null,
+                container: null,
+                currentMicron: null,
+                grindersContainer: null
+            };
+
+            function init() {
+                dom.ruler = document.getElementById('ruler');
+                dom.container = document.querySelector('.container');
+                dom.currentMicron = document.querySelector('.current-micron');
+                dom.grindersContainer = document.getElementById('grinders');
+
+                const initialMicron = 600;
+                setupRuler(initialMicron);
+                setupGrinders();
+                setupEventListeners();
+                updateDisplay(initialMicron);
+            }
+
+            function setupRuler(initialMicron) {
+                state.containerWidth = dom.container.offsetWidth;
+                state.rulerWidth = config.maxMicron * config.pixelsPerMicron;
+                dom.ruler.style.width = `${state.rulerWidth}px`;
+
+                for(let i = 0; i <= config.maxMicron; i += 50) {
+                    const mark = document.createElement('div');
+                    mark.className = `ruler-mark ${i % 200 === 0 ? 'major-mark' : ''}`;
+                    mark.style.left = `${i * config.pixelsPerMicron}px`;
+                    if(i % 200 === 0) {
+                        const label = document.createElement('div');
+                        label.className = 'ruler-label';
+                        label.textContent = `${i}µm`;
+                        mark.appendChild(label);
+                    }
+                    dom.ruler.appendChild(mark);
+                }
+
+                config.methods.forEach(method => {
+                    const zone = document.createElement('div');
+                    zone.className = 'method-zone';
+                    zone.style.cssText = `
+                        left: ${method.min * config.pixelsPerMicron}px;
+                        width: ${(method.max - method.min) * config.pixelsPerMicron}px;
+                        background-color: ${method.color};
+                        top: ${method.top}px;
+                    `;
+                    zone.innerHTML = `<div class="method-label">${method.name}</div>`;
+                    dom.ruler.appendChild(zone);
+                });
+
+                state.currentTranslate = -initialMicron * config.pixelsPerMicron;
+                dom.ruler.style.transform = `translateX(${state.currentTranslate}px)`;
+            }
+
+            function setupGrinders() {
+                config.grinders.forEach(grinder => {
+                    const div = document.createElement('div');
+                    div.className = 'grinder-box';
+                    div.innerHTML = `
+                        <div class="grinder-name">${grinder.name}</div>
+                        <div class="grinder-clicks" id="clicks-${grinder.id}">-</div>
+                        <div class="grinder-microns-per-click">${getMicronsPerClickText(grinder)}</div>
+                    `;
+                    dom.grindersContainer.appendChild(div);
+                });
+            }
+
+            function updateDisplay(micron) {
+                micron = Math.max(0, Math.min(config.maxMicron, micron));
+                dom.currentMicron.textContent = `${micron}µm`;
+
+                config.grinders.forEach(grinder => {
+                    document.getElementById(`clicks-${grinder.id}`).textContent =
+                        getGrinderClicksText(grinder, micron);
+                });
+
+                document.querySelectorAll('.method-zone').forEach(zone => {
+                    const zoneStart = parseInt(zone.style.left) / config.pixelsPerMicron;
+                    const zoneEnd = zoneStart + (parseInt(zone.style.width) / config.pixelsPerMicron);
+                    zone.classList.toggle('active', micron >= zoneStart && micron <= zoneEnd);
+                });
+            }
+
+            function handleMouseDown(e) {
+                state.isDragging = true;
+                state.startX = e.clientX || e.touches[0].clientX;
+                document.body.style.cursor = 'grabbing';
+                document.body.classList.add('no-select');
+                document.body.style.touchAction = 'none';
+            }
+
+            function handleMouseMove(e) {
+                if(!state.isDragging) return;
+
+                const x = e.clientX || e.touches[0].clientX;
+                const delta = x - state.startX;
+                state.startX = x;
+
+                state.currentTranslate += delta;
+                const maxTranslate = -state.rulerWidth;
+                state.currentTranslate = Math.min(0, Math.max(maxTranslate, state.currentTranslate));
+
+                const micron = Math.round(-state.currentTranslate / config.pixelsPerMicron);
+                updateDisplay(micron);
+                dom.ruler.style.transform = `translateX(${state.currentTranslate}px)`;
+            }
+
+            function handleMouseUp() {
+                state.isDragging = false;
+                document.body.style.cursor = 'default';
+                document.body.classList.remove('no-select');
+                document.body.style.touchAction = '';
+            }
+
+            function setupEventListeners() {
+                const rulerContainer = document.getElementById('rulerContainer');
+                rulerContainer.addEventListener('mousedown', handleMouseDown);
+                document.addEventListener('mousemove', handleMouseMove);
+                document.addEventListener('mouseup', handleMouseUp);
+                rulerContainer.addEventListener('touchstart', handleMouseDown);
+                document.addEventListener('touchmove', handleMouseMove);
+                document.addEventListener('touchend', handleMouseUp);
+                document.getElementById('rulerContainer').addEventListener('selectstart', (e) => {
+                    if(state.isDragging) {
+                        e.preventDefault();
+                        return false;
+                    }
+                });
+                document.addEventListener('touchstart', function(e) {
+                    if(e.touches.length > 1) {
+                        e.preventDefault();
+                    }
+                }, { passive: false });
+                document.addEventListener('gesturestart', function(e) {
+                    e.preventDefault();
+                });
+            }
+
+            return { init };
+        })();
+
+        window.addEventListener('DOMContentLoaded', CoffeeGrindSettingsMatcher.init);
+    </script>
+</body>
+</html>
