@@ -88,6 +88,7 @@
             font-size: 0.8em;
             font-weight: bold;
             text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+            transition: transform 0.3s ease;
         }
 
         .ruler-mark {
@@ -262,13 +263,13 @@
                 dom.grindersContainer = document.getElementById('grinders');
 
                 const initialMicron = 600;
-                setupRuler(initialMicron);
+                setupRuler();
                 setupGrinders();
                 setupEventListeners();
                 updateDisplay(initialMicron);
             }
 
-            function setupRuler(initialMicron) {
+            function setupRuler() {
                 state.containerWidth = dom.container.offsetWidth;
                 state.rulerWidth = config.maxMicron * config.pixelsPerMicron;
                 dom.ruler.style.width = `${state.rulerWidth}px`;
@@ -298,9 +299,6 @@
                     zone.innerHTML = `<div class="method-label">${method.name}</div>`;
                     dom.ruler.appendChild(zone);
                 });
-
-                state.currentTranslate = -initialMicron * config.pixelsPerMicron;
-                dom.ruler.style.transform = `translateX(${state.currentTranslate}px)`;
             }
 
             function setupGrinders() {
@@ -318,7 +316,9 @@
 
             function updateDisplay(micron) {
                 micron = Math.max(0, Math.min(config.maxMicron, micron));
-                dom.currentMicron.textContent = `${micron}µm`;
+                state.currentTranslate = -micron * config.pixelsPerMicron;
+                dom.ruler.style.transform = `translateX(${state.currentTranslate}px)`;
+                dom.currentMicron.textContent = `${micron|0}µm`;
 
                 config.grinders.forEach(grinder => {
                     document.getElementById(`clicks-${grinder.id}`).textContent =
@@ -330,6 +330,31 @@
                     const zoneEnd = zoneStart + (parseInt(zone.style.width) / config.pixelsPerMicron);
                     zone.classList.toggle('active', micron >= zoneStart && micron <= zoneEnd);
                 });
+
+                setTimeout(() => {
+                    const containerRect = dom.container.getBoundingClientRect();
+                    const containerCenter = containerRect.left + containerRect.width / 2;
+                    document.querySelectorAll('.method-zone').forEach(zone => {
+                        const zoneRect = zone.getBoundingClientRect();
+                        const label = zone.querySelector('.method-label');
+                        const labelOffset = label.offsetWidth / 2;
+                        let targetX = 0;
+                        if (zoneRect.left < containerRect.left && zoneRect.right > containerRect.right) {
+                            const zoneCenter = zoneRect.left + zoneRect.width / 2;
+                            targetX = containerCenter - zoneCenter;
+                        }
+                        else if (zoneRect.left < containerRect.left) {
+                            targetX = (zoneRect.width - zoneRect.right + containerRect.left + labelOffset) / 2;
+                            targetX = Math.min(zoneRect.width / 2 - labelOffset, targetX);
+                        }
+                        else if (zoneRect.right > containerRect.right) {
+                            targetX = (containerRect.right - zoneRect.left - labelOffset - zoneRect.width) / 2;
+                            targetX = Math.max(labelOffset - zoneRect.width / 2, targetX);
+                        }
+                        label.style.transform = `translateX(${targetX}px)`;
+                        console.log(label.innerHTML, targetX)
+                    });
+                }, 200);
             }
 
             function handleMouseDown(e) {
@@ -341,19 +366,19 @@
             }
 
             function handleMouseMove(e) {
-                if(!state.isDragging) return;
+                if(!state.isDragging) {
+                    return;
+                }
 
                 const x = e.clientX || e.touches[0].clientX;
                 const delta = x - state.startX;
                 state.startX = x;
 
                 state.currentTranslate += delta;
-                const maxTranslate = -state.rulerWidth;
-                state.currentTranslate = Math.min(0, Math.max(maxTranslate, state.currentTranslate));
+                state.currentTranslate = Math.min(0, Math.max(-state.rulerWidth, state.currentTranslate));
 
-                const micron = Math.round(-state.currentTranslate / config.pixelsPerMicron);
+                const micron = -state.currentTranslate / config.pixelsPerMicron;
                 updateDisplay(micron);
-                dom.ruler.style.transform = `translateX(${state.currentTranslate}px)`;
             }
 
             function handleMouseUp() {
